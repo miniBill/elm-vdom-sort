@@ -1,9 +1,11 @@
 module Main exposing (main)
 
 import Browser
+import Dagre.Attributes
 import Dict
 import Graph exposing (Edge, Graph, NodeId)
 import Html exposing (Html)
+import Html.Events
 import IntDict
 import Render
 import Render.StandardDrawers
@@ -190,15 +192,25 @@ update msg _ =
 
 init : Flags -> ( Model, Cmd Msg )
 init _ =
-    ( 3, Cmd.none )
+    ( 4, Cmd.none )
 
 
 view : Model -> Html Msg
 view model =
     Html.div []
-        [ Render.draw
-            []
-            [ Render.style "width: 100vw;"
+        [ Html.text "Size: "
+        , if model > 0 then
+            Html.button [ Html.Events.onClick (max 0 (model - 1)) ] [ Html.text "-" ]
+
+          else
+            Html.text ""
+        , Html.text (" " ++ String.fromInt model ++ " ")
+        , Html.button [ Html.Events.onClick (model + 1) ] [ Html.text "+" ]
+        , Render.draw
+            [ Dagre.Attributes.rankDir Dagre.Attributes.LR ]
+            [ Render.style "width: 100%"
+            , Render.style "max-width: 100vw"
+            , Render.style "max-height: 100vh"
             , Render.style "font-family: monospace"
             , Render.nodeDrawer
                 (Render.StandardDrawers.svgDrawNode
