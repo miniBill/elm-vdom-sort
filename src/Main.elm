@@ -2,9 +2,10 @@ module Main exposing (main)
 
 import Browser
 import Dagre.Attributes
-import Dict
+import Dict exposing (Dict)
 import Graph exposing (Edge, Graph, NodeId)
-import Html exposing (Html)
+import Html exposing (Attribute, Html)
+import Html.Attributes
 import Html.Events
 import IntDict
 import Render
@@ -206,38 +207,114 @@ view model =
             Html.text ""
         , Html.text (" " ++ String.fromInt model ++ " ")
         , Html.button [ Html.Events.onClick (model + 1) ] [ Html.text "+" ]
-        , Render.draw
-            [ Dagre.Attributes.rankDir Dagre.Attributes.LR ]
-            [ Render.style "width: 100%"
-            , Render.style "max-width: 100vw"
-            , Render.style "max-height: 100vh"
-            , Render.style "font-family: monospace"
-            , Render.nodeDrawer
-                (Render.StandardDrawers.svgDrawNode
-                    [ Render.StandardDrawers.Attributes.label
-                        (\{ label } -> String.join " " (List.map String.fromInt label))
-                    , Render.StandardDrawers.Attributes.shape
-                        (\_ ->
-                            Render.StandardDrawers.Types.RoundedBox 1
-                        )
-                    , Render.StandardDrawers.Attributes.fontSize 8
-                    ]
-                )
-            , Render.edgeDrawer
-                (Render.StandardDrawers.svgDrawEdge
-                    [ Render.StandardDrawers.Attributes.label
-                        (\{ label } ->
-                            let
-                                ( from, to ) =
-                                    label
-                            in
-                            String.fromInt from ++ " -> " ++ String.fromInt to
-                        )
-                    , Render.StandardDrawers.Attributes.arrowHead Render.StandardDrawers.Types.Triangle
-                    , Render.StandardDrawers.Attributes.fontSize 8
-                    , Render.StandardDrawers.Attributes.strokeWidth (\_ -> 1.5)
-                    ]
-                )
-            ]
-            (swapGraph model)
+        , container
+            [ Html.Attributes.style "align-items" "flex-start" ]
+            [ viewGraph model (swapGraph model) ]
         ]
+
+
+container : List (Attribute msg) -> List (Html msg) -> Html msg
+container attrs children =
+    Html.div
+        (Html.Attributes.style "display" "flex"
+            :: Html.Attributes.style "flex-direction" "column"
+            :: Html.Attributes.style "align-items" "flex-end"
+            :: Html.Attributes.style "padding-right" "25px"
+            :: attrs
+        )
+        children
+
+
+viewGraph : Int -> Graph (List Int) ( Int, Int ) -> Html Model
+viewGraph size graph =
+    let
+        nodesDict : Dict NodeId (List Int)
+        nodesDict =
+            graph
+                |> Graph.nodes
+                |> List.map (\{ id, label } -> ( id, label ))
+                |> Dict.fromList
+
+        dict : Dict Int (List (Edge ( Int, Int )))
+        dict =
+            graph
+                |> Graph.reverseEdges
+                |> Graph.bfs
+                    (\path _ acc ->
+                        case path of
+                            [] ->
+                                acc
+
+                            [ _ ] ->
+                                acc
+
+                            current :: prev :: _ ->
+                                upsert prev.node.id
+                                    { from = current.node.id
+                                    , to = prev.node.id
+                                    , label =
+                                        IntDict.get current.node.id prev.outgoing
+                                            |> Maybe.withDefault ( -1, -1 )
+                                    }
+                                    acc
+                    )
+                    Dict.empty
+
+        go : ( Int, Int ) -> String -> NodeId -> Html msg
+        go ( highlightFrom, highlightTo ) after nodeId =
+            let
+                here =
+                    Dict.get nodeId nodesDict
+                        |> Maybe.withDefault []
+                        |> List.indexedMap
+                            (\i v ->
+                                let
+                                    inner : Html msg
+                                    inner =
+                                        Html.text (String.fromInt v)
+                                in
+                                if i == highlightFrom then
+                                    [ Html.span
+                                        [ Html.Attributes.style "background" "#fcc" ]
+                                        [ inner ]
+                                    ]
+
+                                else if i == highlightTo then
+                                    [ Html.span
+                                        [ Html.Attributes.style "background" "#cfc" ]
+                                        [ Html.text "_" ]
+                                    , inner
+                                    ]
+
+                                else
+                                    [ inner ]
+                            )
+                        |> List.concat
+                        |> (\l -> l ++ [ Html.text after ])
+                        |> List.intersperse (Html.text " ")
+                        |> Html.span []
+
+                children =
+                    Dict.get nodeId dict
+                        |> Maybe.withDefault []
+                        |> List.map
+                            (\{ from, label } ->
+                                go label (edgeLabelToString label) from
+                            )
+            in
+            container []
+                [ container [ Html.Attributes.style "padding-right" "25px" ] children
+                , here
+                ]
+    in
+    go ( -1, -1 ) "" (toId size (List.range 0 (size - 1)))
+
+
+edgeLabelToString : ( Int, Int ) -> String
+edgeLabelToString ( from, to ) =
+    "|" ++ String.fromInt from ++ " -> " ++ String.fromInt to
+
+
+upsert : comparable -> a -> Dict comparable (List a) -> Dict comparable (List a)
+upsert key value dict =
+    Dict.insert key (value :: Maybe.withDefault [] (Dict.get key dict)) dict
